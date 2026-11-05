@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CardioAgent-Ops</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+    <!-- Navbar -->
+    <nav class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/20">
+                    <i class="fa-solid font-bold fa-heart-pulse text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">CardioAgent-Ops</h1>
+                    <p class="text-xs text-slate-400">Plateforme MLOps de Diagnostic Cardio-Acoustique</p>
+                </div>
+            </div>
+
+            <!-- Badges de statut des micro-services -->
+            <div class="flex items-center space-x-2 text-xs" id="services-status">
+                <span class="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Gateway: OK
+                </span>
+                <span class="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-blue-500"></span> Audio-Engine: Ready
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <!-- Colonne Gauche : Upload & Fichier Audio (5 cols) -->
+        <section class="lg:col-span-5 space-y-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
+                <h2 class="text-md font-semibold text-slate-200 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-file-audio text-cyan-400"></i> Enregistrement Cardio-Acoustique (.WAV)
+                </h2>
+
+                <!-- Zone de Drag and Drop -->
+                <div id="drop-zone" class="border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-xl p-8 text-center transition cursor-pointer bg-slate-950/50 group">
+                    <input type="file" id="audio-input" accept=".wav,audio/wav" class="hidden">
+                    <div class="w-12 h-12 mx-auto mb-3 rounded-full bg-slate-800 group-hover:bg-cyan-500/10 text-slate-400 group-hover:text-cyan-400 flex items-center justify-center transition">
+                        <i class="fa-solid fa-cloud-arrow-up text-xl"></i>
+                    </div>
+                    <p class="text-sm font-medium text-slate-300">Glissez votre fichier <span class="text-cyan-400 font-semibold">.WAV</span> ici</p>
+                    <p class="text-xs text-slate-500 mt-1">Format PhysioNet / PASCAL (2000 Hz recommandé)</p>
+                </div>
+
+                <!-- Lecteur Audio Prévisualisation -->
+                <div id="audio-preview" class="hidden mt-4 p-4 bg-slate-950 rounded-xl border border-slate-800">
+                    <div class="flex items-center justify-between mb-2">
+                        <span id="file-name" class="text-xs text-slate-300 font-mono truncate max-w-[200px]">audio_sample.wav</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">Prêt</span>
+                    </div>
+                    <audio id="audio-player" controls class="w-full h-8 mt-1"></audio>
+                </div>
+
+                <button id="btn-analyze" disabled class="w-full mt-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl shadow-lg shadow-cyan-500/20 transition flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-microchip"></i> Lancer l'Analyse IA
+                </button>
+            </div>
+        </section>
+
+        <!-- Colonne Droite : Résultats du Diagnostic Clinique (7 cols) -->
+        <section class="lg:col-span-7 space-y-6">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl min-h-[400px]">
+                <h2 class="text-md font-semibold text-slate-200 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-stethoscope text-cyan-400"></i> Rapport Diagnostic de l'Agent Médical
+                </h2>
+
+                <!-- État Initial (Vide) -->
+                <div id="result-placeholder" class="py-16 text-center text-slate-500">
+                    <i class="fa-solid fa-heart-pulse text-4xl mb-3 opacity-30"></i>
+                    <p class="text-sm">Veuillez charger un fichier audio et cliquer sur <br><span class="text-slate-400">"Lancer l'Analyse IA"</span></p>
+                </div>
+
+                <!-- Spinner de Chargement -->
+                <div id="loading-spinner" class="hidden py-16 text-center">
+                    <div class="w-12 h-12 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p class="text-sm text-cyan-400 font-medium">Inférence en cours via Audio-Engine (ONNX)...</p>
+                </div>
+
+                <!-- Carte de Résultats -->
+                <div id="result-card" class="hidden space-y-6">
+                    <div id="diagnostic-banner" class="p-4 rounded-xl border flex items-center justify-between">
+                        <div>
+                            <span class="text-xs uppercase tracking-wider font-bold opacity-80">Diagnostic IA</span>
+                            <h3 id="diag-title" class="text-xl font-bold mt-0.5">--</h3>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs text-slate-400">Score de Confiance</span>
+                            <div id="diag-confidence" class="text-lg font-mono font-bold text-cyan-400">--%</div>
+                        </div>
+                    </div>
+
+                    <!-- Métriques Clés -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                            <span class="text-xs text-slate-400">Fréquence d'Échantillonnage</span>
+                            <p class="text-sm font-semibold text-slate-200 mt-1">2 000 Hz (Standard)</p>
+                        </div>
+                        <div class="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                            <span class="text-xs text-slate-400">Modèle Utilisé</span>
+                            <p class="text-sm font-semibold text-slate-200 mt-1">ONNX / ResNet-Mel2D</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const audioInput = document.getElementById('audio-input');
+        const audioPreview = document.getElementById('audio-preview');
+        const audioPlayer = document.getElementById('audio-player');
+        const fileName = document.getElementById('file-name');
+        const btnAnalyze = document.getElementById('btn-analyze');
+        let audioObjectUrl;
+
+        dropZone.addEventListener('click', () => audioInput.click());
+        audioInput.addEventListener('change', handleFileSelect);
+
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            dropZone.classList.add('border-cyan-500');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-cyan-500');
+        });
+
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            dropZone.classList.remove('border-cyan-500');
+            const [file] = event.dataTransfer.files;
+            if (file && (file.name.toLowerCase().endsWith('.wav') || file.type === 'audio/wav' || file.type === 'audio/x-wav')) {
+                audioInput.files = event.dataTransfer.files;
+                showSelectedFile(file);
+            } else if (file) {
+                alert('Veuillez sélectionner un fichier audio au format .WAV.');
+            }
+        });
+
+        function handleFileSelect(event) {
+            const [file] = event.target.files;
+            if (file) {
+                if (!file.name.toLowerCase().endsWith('.wav') && file.type !== 'audio/wav' && file.type !== 'audio/x-wav') {
+                    alert('Veuillez sélectionner un fichier audio au format .WAV.');
+                    audioInput.value = '';
+                    return;
+                }
+                showSelectedFile(file);
+            }
+        }
+
+        function showSelectedFile(file) {
+            fileName.textContent = file.name;
+            if (audioObjectUrl) {
+                URL.revokeObjectURL(audioObjectUrl);
+            }
+            audioObjectUrl = URL.createObjectURL(file);
+            audioPlayer.src = audioObjectUrl;
+            audioPreview.classList.remove('hidden');
+            btnAnalyze.disabled = false;
+        }
+
+        btnAnalyze.addEventListener('click', async () => {
+            const [file] = audioInput.files;
+            if (!file) return;
+
+            document.getElementById('result-placeholder').classList.add('hidden');
+            document.getElementById('result-card').classList.add('hidden');
+            document.getElementById('loading-spinner').classList.remove('hidden');
+            btnAnalyze.disabled = true;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/v1/predict', { method: 'POST', body: formData });
+                if (!response.ok) {
+                    throw new Error(`Le serveur a répondu avec le statut ${response.status}.`);
+                }
+                const data = await response.json();
+
+                document.getElementById('result-card').classList.remove('hidden');
+
+                const banner = document.getElementById('diagnostic-banner');
+                const title = document.getElementById('diag-title');
+                const confidence = document.getElementById('diag-confidence');
+
+                title.textContent = data.prediction || 'Analyse Complétée';
+                confidence.textContent = typeof data.confidence === 'number'
+                    ? `${Math.round(data.confidence * 100)}%`
+                    : 'Non disponible';
+
+                if (data.label_code === 1 || (data.prediction && data.prediction.includes('Abnormal'))) {
+                    banner.className = 'p-4 rounded-xl border bg-rose-500/10 border-rose-500/30 text-rose-300 flex justify-between items-center';
+                } else {
+                    banner.className = 'p-4 rounded-xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-300 flex justify-between items-center';
+                }
+            } catch (error) {
+                alert('Erreur lors de l’analyse : ' + error.message);
+                document.getElementById('result-placeholder').classList.remove('hidden');
+            } finally {
+                document.getElementById('loading-spinner').classList.add('hidden');
+                btnAnalyze.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
