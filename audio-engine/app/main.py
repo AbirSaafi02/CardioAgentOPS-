@@ -1,96 +1,73 @@
-import os
+import hashlib
+import io
+import logging
 import time
-from pathlib import Path
+from contextlib import asynccontextmanager
 
 import numpy as np
-import onnxruntime as ort
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 
-from app.preprocessing import InvalidAudioError, process_audio_bytes
+from .errors import AudioTooShort, ModelContractError
+from .inference import CardioModel, aggregate
+from .mlflow_utils import log_inference
+from .preprocessing import load_meta, preprocess, to_log_mel
 
-app = FastAPI(
-    title="CardioAgent-Ops Audio Engine",
-    version="1.0.0",
-    description="Micro-service d'inférence audio ONNX pour le diagnostic cardio-acoustique",
-)
+logger = logging.getLogger("audio-engine")
+logging.basicConfig(level=logging.INFO)
 
-MODEL_PATH = Path(
-    os.getenv(
-        "MODEL_PATH",
-        str(Path(__file__).resolve().parent.parent / "models" / "cardio_model.onnx"),
-    )
-)
+meta = load_meta()
+model = CardioModel(meta)  # chargé UNE fois au démarrage
 
-try:
-    session = ort.InferenceSession(str(MODEL_PATH))
-    input_name = session.get_inputs()[0].name
-    print(f"Modèle ONNX chargé avec succès depuis '{MODEL_PATH}'")
-except Exception as exc:
-    print(f"Erreur de chargement du modèle ONNX : {exc}")
-    session = None
-    input_name = None
+
+class PredictResponse(BaseModel):
+    label: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    probabilities: dict[str, float]
+    n_windows: int
+    window_probabilities: list[float]
+    latency_ms: float
+    model: str
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Warm-up: la 1re exécution de librosa (numba) est lente -> on la fait avant la 1re vraie requête
+    to_log_mel(np.zeros(int(meta["sample_rate"] * meta["duration_s"]), dtype=np.float32), meta)
+    model.predict_windows(np.zeros(tuple([1] + meta["input_shape"][1:]), dtype=np.float32))
+    logger.info("audio-engine prêt (modèle: %s)", meta["model"])
+    yield
+
+
+app = FastAPI(title="audio-engine", lifespan=lifespan)
 
 
 @app.get("/health")
-async def health_check():
-    """Vérifie l'état du micro-service."""
-    return {
-        "status": "online" if session is not None else "degraded",
-        "service": "audio-engine",
-        "model_loaded": session is not None,
-    }
+def health():
+    return {"status": "ok", "model": meta["model"]}
 
 
-@app.post("/predict")
-async def predict(file: UploadFile = File(...)):
-    """Reçoit un fichier WAV et renvoie le résultat de l'inférence."""
-    if not file.filename or not file.filename.lower().endswith(".wav"):
-        raise HTTPException(
-            status_code=400,
-            detail="Seuls les fichiers .wav sont acceptés.",
-        )
-
-    if session is None or input_name is None:
-        raise HTTPException(status_code=503, detail="Modèle ONNX non chargé.")
-
-    start_time = time.time()
-
+# `def` (et pas `async def`): le travail est CPU-bound (filtrage, mel, ONNX).
+# FastAPI exécute alors la fonction dans un thread pool -> le serveur reste réactif.
+@app.post("/predict", response_model=PredictResponse)
+def predict(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    raw = file.file.read()
+    t0 = time.perf_counter()
     try:
-        contents = await file.read()
-        input_data = process_audio_bytes(contents)
-        outputs = session.run(None, {input_name: input_data})
-        probability = float(np.asarray(outputs[0]).reshape(-1)[0])
+        tensor = preprocess(io.BytesIO(raw), meta)
+    except AudioTooShort as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ModelContractError as e:
+        logger.error("Contrat modèle violé: %s", e)
+        raise HTTPException(status_code=500, detail="Erreur interne de prétraitement")
+    except Exception as e:  # fichier illisible / pas un vrai WAV
+        raise HTTPException(status_code=422, detail=f"Audio illisible: {type(e).__name__}")
 
-        if not np.isfinite(probability) or not 0 <= probability <= 1:
-            raise ValueError("Le modèle a renvoyé une probabilité invalide.")
+    result = aggregate(model.predict_windows(tensor), model.classes, model.patho_idx)
+    latency_ms = round((time.perf_counter() - t0) * 1000, 2)
 
-        label_code = 1 if probability >= 0.35 else 0
-        prediction_label = "Abnormal" if label_code == 1 else "Normal"
-        elapsed_time = round((time.time() - start_time) * 1000, 2)
+    # Log MLflow APRÈS l'envoi de la réponse (n'allonge pas la latence du client)
+    audio_hash = hashlib.sha256(raw).hexdigest()[:12]
+    background_tasks.add_task(log_inference, result, latency_ms, audio_hash, meta["model"])
 
-        return JSONResponse(
-            content={
-                "status": "success",
-                "filename": file.filename,
-                "prediction": prediction_label,
-                "label_code": label_code,
-                "confidence": round(
-                    probability if label_code == 1 else 1.0 - probability,
-                    4,
-                ),
-                "raw_probability": round(probability, 4),
-                "processing_time_ms": elapsed_time,
-            }
-        )
-    except HTTPException:
-        raise
-    except InvalidAudioError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur d'inférence : {exc}",
-        ) from exc
-    finally:
-        await file.close()
+    return {**result, "latency_ms": latency_ms, "model": meta["model"]}

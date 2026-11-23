@@ -1,0 +1,35 @@
+{
+  "model": "3. CNN Custom",
+  "input_type": "log_mel",
+  "input_name": "log_mel",
+  "input_shape": [
+    1,
+    1,
+    40,
+    157
+  ],
+  "sample_rate": 2000,
+  "duration_s": 5,
+  "n_mels": 40,
+  "n_fft": 256,
+  "hop_length": 64,
+  "n_mfcc": 13,
+  "bandpass_hz": [
+    25,
+    400
+  ],
+  "classes": [
+    "normal",
+    "pathologique"
+  ],
+  "mel_mean": -46.713871002197266,
+  "mel_std": 21.112274169921875,
+  "test_metrics": {
+    "accuracy": 0.8430637386181039,
+    "recall_patho": 0.950381679389313,
+    "specificity": 0.8011913626204012,
+    "precision": 0.6509803921568628,
+    "f1": 0.7726920093095423,
+    "auc": 0.9554333183655143
+  }
+}
