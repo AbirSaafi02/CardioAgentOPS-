@@ -1,0 +1,42 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
+
+# Python environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Test and tooling output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local MLflow state
+mlruns/
+mlartifacts/
+mlflow-data/
+mlflow.db
+*.sqlite
+*.sqlite3
+
+# Build output and logs
+build/
+dist/
+*.egg-info/
+*.log
+
+# IDE and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
