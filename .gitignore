@@ -40,3 +40,8 @@ dist/
 .idea/
 .DS_Store
 Thumbs.db
+
+
+# Large LLM model artifacts
+*.gguf
+*.gguf.*
